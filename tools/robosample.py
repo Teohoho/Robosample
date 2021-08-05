@@ -1438,7 +1438,7 @@ class Simulation:
 		self.inpDict["SEED"] = []
 		self.inpDict["WORLDS"] = [] 
 		self.inpDict["FLEXFILE"] = self.inpDict["FLEXFILE"][:-1]
-
+		SEEDRandNumber = np.random.randint(0,10000)*1000 + np.random.randint(0,10)
 
 		for NMAWorld in range(Modes):
 			NMAFlexFN = "{}.FlexNumber{}.Mode{}.Scaled.flex".format(self.NMAFlex.tempRoot, self.NMAGen, NMAWorld) 
@@ -1456,7 +1456,7 @@ class Simulation:
 
 		for ix in range(len(self.inpDict["PRMTOP"])):
 			self.inpDict["WORLDS"].append("R{}".format(ix))
-			self.inpDict["SEED"].append(self.NMAGen*100)
+			self.inpDict["SEED"].append(SEEDRandNumber + self.NMAGen*100)
 			
 		
 	
@@ -1507,7 +1507,7 @@ class Simulation:
 			self.inpDict["SEED"] = [] 
 			for allWorlds in range(len(self.inpDict["PRMTOP"])):
 				self.inpDict["INPCRD"].append(newRST7FN.split("/")[-1])
-				self.inpDict["SEED"].append(self.NMAGen*100)
+				self.inpDict["SEED"].append(SEEDRandNumber + self.NMAGen*100)
 			for NMAWorld in range(Modes):
 				NMAFlexFN = "{}.FlexNumber{}.Mode{}.Scaled.flex".format(self.NMAFlex.tempRoot, self.NMAGen, NMAWorld) 
 				print ("Generated NMA Flex file!(Mode {}, Round {})".format(NMAWorld, self.NMAGen))
