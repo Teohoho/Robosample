@@ -1402,7 +1402,7 @@ class Simulation:
 		os.system("echo \'" + inpTxt + "\'")
 		#os.system("$ROBOSAMPLEDIR/build-release/src/GMOLMODEL_robo inp.test")	##This doesn't wait
 		RSCommand = [os.environ["ROBOSAMPLEDIR"] + "/build-release/src/GMOLMODEL_robo", "inp.test"]
-		RS_sub = subprocess.Popen(RSCommand,stdout=subprocess.PIPE)
+		RS_sub = subprocess.Popen(RSCommand,stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		RS_sub.communicate()
 
 		print("Done Simulation step")
