@@ -11,10 +11,40 @@ import numpy as np
 from mdtraj.utils import ensure_type
 from mdtraj.geometry import _geometry, distance, dihedral
 
+import simtk.openmm.app
+import simtk.openmm
+import simtk.unit
+
+from ls_parsepdb import ParsePdb
+
 # Units constants
 kelvin = 1
 picoseconds = 1
 nanometer = 1
+
+def PDB2CRD(pdbIn, crdOut):
+	"""
+	Since Robosample gets uppity if you don't use a certain
+	format of rst7, we need to manually generate them, using
+	this handy function.
+	"""
+
+	pdbParser = ParsePdb()
+	pdbParser.Read(pdbIn)
+
+	f = open(crdOut, "w")
+	
+	f.write('default_name\n')
+	f.write("%6d\n" % len(pdbParser.parsed_data))
+	i = -1
+	for pd in pdbParser.parsed_data:
+		if(pd["record"] == "ATOM  "):
+			i = i + 1 
+			if not i%2: # 0, 2, 4, ...
+				f.write("%12.7f%12.7f%12.7f" % (pd["x"], pd["y"], pd["z"]))
+			else: # 1, 3, 5
+				f.write("%12.7f%12.7f%12.7f\n" % (pd["x"], pd["y"], pd["z"]))
+	
 
 def printFlexLine(line, joint):
 	return ("%d %d %s %s %s %s %d %s %s %s %d %s %.5f %.5f\n" % \
@@ -334,7 +364,7 @@ class Context:
 			currResIx += 1
 			nextResIx += 1
 		self.coils = np.array(self.coils)
-		print('coils', self.coils)
+		#print('coils', self.coils)
 
 		# Compute dot products between bonds
 		for i in range(self.mdtrajTraj.topology.n_bonds):
@@ -366,8 +396,8 @@ class Context:
 					n1 = np.linalg.norm(v1)
 					n2 = np.linalg.norm(v2)
 					bondDots[bvi, bvj] = bondDots[bvj, bvi] = np.abs(np.dot(v1, v2) / (n1*n2))
-					print(bondDots[bvi, bvj], end = ' ')
-			print()
+					#print(bondDots[bvi, bvj], end = ' ')
+			#print()
 		
 		# Perform clustering on dot products
 		import scipy.cluster.hierarchy as sch
@@ -378,13 +408,13 @@ class Context:
 		Z = sch.linkage(reduced_distances, method='ward') # 'single', 'complete', 'weighted', and 'average'
 		flatClusts = sch.fcluster(Z, 0.999, criterion='distance')
 		flatClusts = np.array(flatClusts)
-		print('flatClusts', flatClusts)
+		#print('flatClusts', flatClusts)
 		#for clustNo in range(np.max(flatClusts)):
-		for clustNo in range(1,2):
-			for doti in range(flatClusts.shape[0]):
-				if flatClusts[doti] == clustNo:
+		#for clustNo in range(1,2):
+		#	for doti in range(flatClusts.shape[0]):
+		#		if flatClusts[doti] == clustNo:
 					#print(self.bondsBB[doti][0], self.bondsBB[doti][1], "Pin")
-					print(doti, self.bondsBB[doti], self.bondsBB[doti])
+					#print(doti, self.bondsBB[doti], self.bondsBB[doti])
 		
 		
 
@@ -688,8 +718,8 @@ class Context:
 		
 		
 	class NMAtoFlex:
-		def __init__(self, MDTrajObj, iModExec, tempRoot="./temp", Modes=1):
-			
+		def __init__(self, MDTrajObj, iModExec, tempRoot="temp", Modes=20):
+				
 			"""
 			Class that takes an MDTraj Trajectory object, ideally a prmtop/inpcrd pair 
 			so the atom indices don't change, and runs iMod on the coordinates, then
@@ -711,6 +741,7 @@ class Context:
 			"""
 			
 			## Slice any non-protein atoms from the MDTraj Trajectory Object
+			self.tempRoot = tempRoot
 			ProteinAtoms = MDTrajObj.topology.select("protein")
 			MDTrajObj = MDTrajObj.atom_slice(ProteinAtoms)
 			
@@ -789,10 +820,12 @@ class Context:
 							Default: True
 			"""
 
+			self.Output = Output
+
 			##Create Output dir if it doesn't exist:
-			if (os.path.exists(Output.split("/")[0]) == False):
-				print("{} did not exist and has been created.".format(Output))
-				os.mkdir(Output.split("/")[0])
+			#if (os.path.exists(Output.split("/")[0]) == False):
+			#	print("{} did not exist and has been created.".format(Output))
+			#	os.mkdir(Output.split("/")[0])
 
 			ModeArray = self.FixArray.copy()
 	
@@ -847,6 +880,7 @@ class Context:
 				FlexOutArray = np.flip(FlexOutArray)
 				
 				FlexOut = open("{}.Mode{}.Scaled.flex".format(Output, EvecModesScaleIx), "w")
+				self.FlexOutFN = "{}.Mode{}.Scaled.flex".format(Output, EvecModesScaleIx)
 				FlexOut.write("##Scaled Flex File##\n")
 				for Ix in range(FlexOutArray.shape[0]):
 					if (FlexOutArray[Ix]["scale"] != 0):
@@ -917,7 +951,8 @@ class Simulation:
 		self.path = path
 		self.filename = filename
 		
-		print("DEBUG", self.system.topologyFNs)
+		#print("DEBUG", self.system.topologyFNs)
+		print (self.system.topologyFNs)
 		self.topFN = os.path.join(self.path, self.system.topologyFNs[0])
 		self.crdFN = os.path.join(self.path, "bot.rst7")
 
@@ -1070,8 +1105,7 @@ class Simulation:
 
 	def addWorld(self, regionType='stretch', region=[[1, 2]], rootMobility='Weld', 
 		timestep=0.001, mdsteps=10, argJointType="Pin", subsets=['rama'], 
-		contacts=False, contactCutoff=0,
-		samples=1):
+		contacts=False, contactCutoff=0,	samples=1, FlexIn="ThisFlexDoesNotExist.flex"):
 
 		print("Starting Simulation addWorld")
 		self.nofWorlds += 1
@@ -1085,7 +1119,11 @@ class Simulation:
 		for reg in region:
 			nofAAs += (reg[1] - reg[0])
 
-		if regionType == 'roll':
+		if regionType == 'premade':
+			self.inpDict['FLEXFILE'].append(FlexIn)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+
+		elif regionType == 'roll':
 			# Recursive call stretch like
 			for regi in range(region.shape[0]):
 				for regj in range(region[regi][0], region[regi][1] + 1):
@@ -1334,6 +1372,9 @@ class Simulation:
 		os.system("touch " + self.defaultRB)
 		os.system("touch " + self.defaultFLEX)
 
+		# Modify input
+		self.inpDict['ROUNDS'] = [nofSteps]
+		self.inpDict['OUTPUT_DIR'] = [self.reporters[0].outputDir]
 
 		# Put input together
 		inpTxt = '''# Robosample input \n'''
@@ -1349,23 +1390,139 @@ class Simulation:
 				inpTxt +=  " " + str(val)
 			inpTxt += '\n'
 		
-		# Modify input
-		self.inpDict['ROUNDS'] = [nofSteps]
-		self.inpDict['OUTPUT_DIR'] = [self.reporters[0].outputDir]
 
 		# Write input file
+		self.inpTxt = inpTxt
 		inpFN = 'inp.test'
 		inpF = open(inpFN, "w+")
-		inpF.write(inpTxt)
+		inpF.write(self.inpTxt)
 		inpF.close()
 
-		#os.system("echo \'" + inpTxt + "\'")
-		#os.system("$ROBOSAMPLEDIR/build?debug/tests/Robosample inp.test")
+		
+		os.system("echo \'" + inpTxt + "\'")
+		#os.system("$ROBOSAMPLEDIR/build-release/src/GMOLMODEL_robo inp.test")	##This doesn't wait
+		RSCommand = [os.environ["ROBOSAMPLEDIR"] + "/build-release/src/GMOLMODEL_robo", "inp.test"]
+		RS_sub = subprocess.Popen(RSCommand,stdout=subprocess.PIPE)
+		RS_sub.communicate()
 
 		print("Done Simulation step")
-	#	
+	#		
 #
+	def NMAStep(self, MDTrajObj, totalSteps, recalcSteps, iModExec, Modes):
+		"""
+	Function that runs a RS simulation for totalSteps steps, using the 
+	simulation class in this script but every recalcSteps recomputes
+	the FLEX file, using NMA.
+	
+	Parameters
+	----------
 
+	MDTrajObj:  MDTrajTrajectory Object
+					Trajectory object for which the NMA will be done.
+	totalSteps:	int
+					Number of total simulation steps to compute
+	recalcSteps:int
+					How many steps to run before recomputing FLEX
+	iModExec:   str
+					Path to iMod executable (imode_gcc)
+
+		"""
+		self.totalSteps = totalSteps
+		self.recalcSteps = recalcSteps
+		self.NMAGen = 1
+
+		
+	## First, we compute the initial NMA and generate the correct FLEX
+		self.NMAFlex = self.context.NMAtoFlex(MDTrajObj, iModExec = iModExec,  Modes=Modes)
+		self.NMAFlex.GetFlexScaled("{}.FlexNumber{}".format(self.NMAFlex.tempRoot, self.NMAGen), GenerateVMD=False)
+		self.inpDict["SEED"] = []
+		self.inpDict["WORLDS"] = [] 
+		self.inpDict["FLEXFILE"] = self.inpDict["FLEXFILE"][:-1]
+
+
+		for NMAWorld in range(Modes):
+			NMAFlexFN = "{}.FlexNumber{}.Mode{}.Scaled.flex".format(self.NMAFlex.tempRoot, self.NMAGen, NMAWorld) 
+			print ("Generated initial NMA Flex file!(Mode {})".format(NMAWorld))
+	## We move the generated FLEX file to the working directory
+			shutil.move(NMAFlexFN, self.system.moldirs[0] + "/" )
+	## We add the generated FLEX file to the input file	
+			self.inpDict["FLEXFILE"].append(NMAFlexFN)
+		
+	## We also need to add values for all the newly created worlds
+		keysToMultiply = ["PRMTOP", "INPCRD", "RBFILE", "ROOT_MOBILITY", "RUN_TYPE", "ROUNDS_TILL_REBLOCK", "ROOTS", "SAMPLER", "TIMESTEPS", "MDSTEPS", "BOOST_MDSTEPS", "SAMPLES_PER_ROUND", "REPRODUCIBLE", "THERMOSTAT", "TEMPERATURE_INI", "TEMPERATURE_FIN", "BOOST_TEMPERATURE", "FFSCALE", "GBSA", "FIXMAN_POTENTIAL", "FIXMAN_TORQUE", "VISUAL", "PRINT_FREQ", "WRITEPDBS", "GEOMETRY", "THREADS", "OPENMM"]
+		for key in keysToMultiply:
+			for ix in range(Modes-1):
+				self.inpDict[key].append(self.inpDict[key][-1])
+
+		for ix in range(len(self.inpDict["PRMTOP"])):
+			self.inpDict["WORLDS"].append("R{}".format(ix))
+			self.inpDict["SEED"].append(self.NMAGen*100)
+			
+		
+	
+		self.step(recalcSteps)
+		self.totalSteps = self.totalSteps - self.recalcSteps	
+		print(self.totalSteps)
+
+	## In order to minimize the system later on, we need to generate an
+	## OpenMM simulation object.
+		OMMprmtop =  simtk.openmm.app.AmberPrmtopFile(self.inpDict['MOLECULES'][0] + "/" + self.inpDict["PRMTOP"][-1])
+		OMMsystem = OMMprmtop.createSystem(implicitSolvent=simtk.openmm.app.OBC2, soluteDielectric=1.0, solventDielectric=80.0, nonbondedMethod=simtk.openmm.app.CutoffNonPeriodic, nonbondedCutoff=1.2*simtk.unit.nanometer, constraints=simtk.openmm.app.HBonds)	
+		OMMintegrator = simtk.openmm.LangevinIntegrator(300*simtk.unit.kelvin, 1/simtk.unit.picosecond, 0.002*simtk.unit.picoseconds)
+		OMMsimulation = simtk.openmm.app.Simulation(OMMprmtop.topology, OMMsystem, OMMintegrator)
+	
+		while (self.totalSteps > 0):
+		## Get final PDB path
+			finalPDBFN = glob.glob("{}/pdbs/*{}.*{}.pdb".format(self.inpDict['OUTPUT_DIR'][0],self.inpDict['SEED'][0],recalcSteps-1))[0]
+			print (finalPDBFN)
+			finalPDB = md.load(finalPDBFN)
+		## Copy coordinates from it to the OMM simulation object
+			OMMsimulation.context.setPositions(finalPDB.openmm_positions(0))
+		## Minimize it
+			TotalPotEnergy = OMMsimulation.context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(simtk.unit.kilocalories_per_mole)
+			print ("\n##MINIMIZATION##\n")
+			print ("Before any minimization is done, the energy is {} kcal/mole".format(TotalPotEnergy))
+			OMMsimulation.minimizeEnergy()
+			TotalPotEnergy = OMMsimulation.context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(simtk.unit.kilocalories_per_mole)
+			print ("After minimization is done, the energy is {} kcal/mole".format(TotalPotEnergy))
+		## Save coordinates into a PDB file
+			SaveState = OMMsimulation.context.getState(getPositions=True)
+			minPDB = "{}.Minimized.pdb".format(finalPDBFN[:-4])
+			pdbWrite = simtk.openmm.app.pdbreporter.PDBReporter(minPDB, reportInterval=0)
+			pdbWrite.report(OMMsimulation, SaveState)
+			print("Minimized PDB file written: {}".format(minPDB))
+		## Generate RST7 file, to use in the next iteration
+			newRST7FN = "{}/PostNMARound{}.rst7".format(self.inpDict['MOLECULES'][0], self.NMAGen)
+			newRST7 = md.load(minPDB)
+			PDB2CRD(minPDB, newRST7FN) 
+			print("New RST7 file written: {}\n".format(newRST7FN))
+		## Recompute NMA, based on new, minimized PDB file
+			self.NMAGen += 1			
+			self.NMAFlex = self.context.NMAtoFlex(newRST7, iModExec = iModExec,  Modes=Modes)
+			self.NMAFlex.GetFlexScaled("{}.FlexNumber{}".format(self.NMAFlex.tempRoot, self.NMAGen), GenerateVMD=False)
+
+		## Regenerate input file, changing INPCRD, SEED and FLEX	
+			self.inpDict["FLEXFILE"] = self.inpDict["FLEXFILE"][:-Modes]
+			self.inpDict["INPCRD"] = []
+			self.inpDict["SEED"] = [] 
+			for allWorlds in range(len(self.inpDict["PRMTOP"])):
+				self.inpDict["INPCRD"].append(newRST7FN.split("/")[-1])
+				self.inpDict["SEED"].append(self.NMAGen*100)
+			for NMAWorld in range(Modes):
+				NMAFlexFN = "{}.FlexNumber{}.Mode{}.Scaled.flex".format(self.NMAFlex.tempRoot, self.NMAGen, NMAWorld) 
+				print ("Generated NMA Flex file!(Mode {}, Round {})".format(NMAWorld, self.NMAGen))
+		## We move the generated FLEX file to the working directory
+				shutil.move(NMAFlexFN, self.system.moldirs[0] + "/" )
+		## We add the generated FLEX file to the input file, and 
+		## change the SEED and INPCRD values accordingly
+				self.inpDict["FLEXFILE"].append(NMAFlexFN)
+			print("\n")
+			self.step(recalcSteps)	
+			self.totalSteps = self.totalSteps - self.recalcSteps	
+			print("Total steps left: {}".format(self.totalSteps))
+
+		## Cleanup temp files
+		self.NMAFlex.CleanUp()
 
 class HMCIntegrator:
 	def __init__(self, T, ts):
@@ -1396,5 +1553,3 @@ class NUTSIntegrator:
 		self.type = 'NUTS'
 	#		
 #
-
-
