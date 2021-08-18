@@ -35,7 +35,11 @@ def PDB2CRD(pdbIn, crdOut):
 	f = open(crdOut, "w")
 	
 	f.write('default_name\n')
-	f.write("%6d\n" % len(pdbParser.parsed_data))
+	NOfAtoms = 0
+	for pd in pdbParser.parsed_data:
+		if(pd["record"] == "ATOM  " or pd["record"] == "HETATM" ):
+			NOfAtoms = NOfAtoms + 1
+	f.write("%6d\n" % NOfAtoms)
 	i = -1
 	for pd in pdbParser.parsed_data:
 		if(pd["record"] == "ATOM  "):
@@ -300,8 +304,11 @@ class Context:
 		
 		# Get topology
 		topology = self.mdtrajTraj.topology
+		self.topology = topology
 		table, bonds = topology.to_dataframe()
-		
+		self.table = table
+		self.bonds = bonds	
+	
 		# Compute accesibility: shape (n_frames,n_atoms)
 		self.sasa = md.shrake_rupley(self.mdtrajTraj, probe_radius = 0.1, mode = 'residue') # nm
 
@@ -327,7 +334,7 @@ class Context:
 		self.distMat = md.compute_contacts(self.mdtrajTraj, contacts='all', scheme='ca', ignore_nonprotein=False, periodic=False)
 		print("Calculating dssp...")
 		self.dssp = md.compute_dssp(self.mdtrajTraj)
-		print('dssp', self.dssp)
+		#print('dssp', self.dssp)
 
 		self.coils = []
 		coilsLen = 0
@@ -928,12 +935,14 @@ class Context:
 #
 
 class Simulation:
-	def __init__(self, topology, system, integrator='HMC', platform='CPU', properties={'nofThreads': 2}, addDefaultWorld=True):
+	def __init__(self, topology, system, integrator='HMC', platform='CPU', properties={'nofThreads': 2}, addDefaultWorld=True, logOutFile=None):
 		print("Starting Simulation init")
 		self.context = Context()
 		self.system = system
 		self.integrator = integrator
 		self.openmmTrue = platform
+		self.switchd = 0
+		self.inpFN = 'inp.test'
 
 		self.nofThreads = properties['nofThreads']
 
@@ -960,6 +969,9 @@ class Simulation:
 		self.defaultRB = os.path.join(self.path, "bot.rb")
 		self.defaultFLEX = os.path.join(self.path, "bot.flex")
 
+		if (logOutFile is None):
+			logOutFile = os.path.join(self.path, "RSLog.out")
+		self.logOutFile = open(logOutFile, "w")
 
 		# Get all bonds
 		#if not os.path.exists(self.allflexFN):
@@ -983,18 +995,15 @@ class Simulation:
 		if addDefaultWorld == True:
 			self.inpDict = {
 				'MOLECULES': ['robots/bot0'],
-				'ROUNDS': [2000],
-				'DISTANCE': [0, 1],
-				'DIHEDRAL': [0, 1, 2, 3],
-				'OUTPUT_DIR': ['robots/'],
-				'RANDOM_WORLD_ORDER': ['FALSE'], 
-	
 				'PRMTOP': ['bot.prmtop'],
 				'INPCRD': ['bot.rst7'],
 				'RBFILE': ['bot.rb'],
 				'FLEXFILE': ['bot.all.flex'],
-				'ROOT_MOBILITY': ['Cartesian'],
+				'OUTPUT_DIR': ['robots/'],
+				
 				'RUN_TYPE': ['Normal'],
+				'ROOT_MOBILITY': ['Cartesian'],
+				'ROUNDS': [2000],
 				'ROUNDS_TILL_REBLOCK': [10],
 				'WORLDS': ['R0'],
 				'ROOTS': [0],
@@ -1005,18 +1014,29 @@ class Simulation:
 				'SAMPLES_PER_ROUND': [4],
 				'REPRODUCIBLE': ['FALSE'],
 				'SEED': [1],
+
+				'MDSTEPS_STD': [0],	
+				'RANDOM_WORLD_ORDER': ['FALSE'], 
+				'NMA_OPTION': [0],
+
 				'THERMOSTAT': ['Andersen'],
 				'TEMPERATURE_INI': [self.integrator.T],
 				'TEMPERATURE_FIN': [self.integrator.T],
 				'BOOST_TEMPERATURE': [600],
 				'FFSCALE': ['AMBER'],
 				'GBSA': [1.0],
+
 				'FIXMAN_POTENTIAL': ['FALSE'],
 				'FIXMAN_TORQUE': ['FALSE'],
+				
+				'GEOMETRY': ['FALSE'],
+				'DISTANCE': [0, 1],
+				'DIHEDRAL': [0, 1, 2, 3],
+
 				'VISUAL': ['FALSE'],
 				'PRINT_FREQ': [1],
 				'WRITEPDBS': [1],
-				'GEOMETRY': ['FALSE'],
+
 				'THREADS': [self.nofThreads],
 				'OPENMM': [str(self.openmmTrue).upper()]
 			}
@@ -1025,18 +1045,15 @@ class Simulation:
 		else:
 			self.inpDict = {
 				'MOLECULES': ['robots/bot0'],
-				'ROUNDS': [2000],
-				'DISTANCE': [0, 1],
-				'DIHEDRAL': [0, 1, 2, 3],
-				'OUTPUT_DIR': ['robots/'],
-				'RANDOM_WORLD_ORDER': ['FALSE'], 
-	
 				'PRMTOP': [],
 				'INPCRD': [],
 				'RBFILE': [],
 				'FLEXFILE': [],
-				'ROOT_MOBILITY': [],
+				'OUTPUT_DIR': ['robots/'],
+				
 				'RUN_TYPE': [],
+				'ROOT_MOBILITY': [],
+				'ROUNDS': [2000],
 				'ROUNDS_TILL_REBLOCK': [],
 				'WORLDS': [],
 				'ROOTS': [],
@@ -1047,18 +1064,29 @@ class Simulation:
 				'SAMPLES_PER_ROUND': [],
 				'REPRODUCIBLE': [],
 				'SEED': [],
+				
+				'MDSTEPS_STD': [],	
+				'RANDOM_WORLD_ORDER': ['FALSE'], 
+				'NMA_OPTION': [],
+	
 				'THERMOSTAT': [],
 				'TEMPERATURE_INI': [],
 				'TEMPERATURE_FIN': [],
 				'BOOST_TEMPERATURE': [],
 				'FFSCALE': [],
 				'GBSA': [],
+				
 				'FIXMAN_POTENTIAL': [],
 				'FIXMAN_TORQUE': [],
+				
+				'GEOMETRY': [],
+				'DISTANCE': [0, 1],
+				'DIHEDRAL': [0, 1, 2, 3],
+				
 				'VISUAL': [],
 				'PRINT_FREQ': [],
 				'WRITEPDBS': [],
-				'GEOMETRY': [],
+				
 				'THREADS': [],
 				'OPENMM': []
 			}
@@ -1068,7 +1096,10 @@ class Simulation:
 		print("Done Simulation init")
 	#
 
-	def inpEverythingButFlex(self, rootMobility='Weld', timestep=0.001, mdsteps=10, contacts=False, contactCutoff=0, samples=1):
+	def inpEverythingButFlex(self, rootMobility='Weld', timestep=0.001, mdsteps=10 \
+									,contacts=False, contactCutoff=0, samples=1, nma_option=0 \
+									,FixP="TRUE", FixT="TRUE", seed=1, WritePDBs=1, Print_Freq=1, \
+									mdsteps_std=0):
 		self.inpDict['PRMTOP'].append('bot.prmtop')
 		self.inpDict['INPCRD'].append('bot.rst7')
 		self.inpDict['RBFILE'].append('bot.rb')
@@ -1079,22 +1110,24 @@ class Simulation:
 		self.inpDict['SAMPLER'].append(self.integrator.type)
 		self.inpDict['TIMESTEPS'].append(timestep)
 		self.inpDict['MDSTEPS'].append(mdsteps)
+		self.inpDict['MDSTEPS_STD'].append(mdsteps_std)
+		self.inpDict['NMA_OPTION'].append(nma_option)
 		self.inpDict['BOOST_MDSTEPS'].append(1)
 		self.inpDict['SAMPLES_PER_ROUND'].append(samples)
 		self.inpDict['REPRODUCIBLE'].append('FALSE')
-		self.inpDict['SEED'].append(1)
+		self.inpDict['SEED'].append(seed)
 		self.inpDict['THERMOSTAT'].append('Andersen')
 		self.inpDict['TEMPERATURE_INI'].append(self.integrator.T)
 		self.inpDict['TEMPERATURE_FIN'].append(self.integrator.T)
 		self.inpDict['BOOST_TEMPERATURE'].append(600)
 		self.inpDict['FFSCALE'].append('AMBER')
 		self.inpDict['GBSA'].append(1.0)
-		self.inpDict['FIXMAN_POTENTIAL'].append('TRUE')
-		self.inpDict['FIXMAN_TORQUE'].append('TRUE')
+		self.inpDict['FIXMAN_POTENTIAL'].append(FixP)
+		self.inpDict['FIXMAN_TORQUE'].append(FixT)
 		self.inpDict['VISUAL'].append('FALSE')
-		self.inpDict['PRINT_FREQ'].append(1)
+		self.inpDict['PRINT_FREQ'].append(Print_Freq)
 		if self.inpDict['WRITEPDBS'] == []:
-			self.inpDict['WRITEPDBS'].append(1)
+			self.inpDict['WRITEPDBS'].append(WritePDBs)
 		else:
 			self.inpDict['WRITEPDBS'].append(0)
 		self.inpDict['GEOMETRY'].append('FALSE')
@@ -1103,12 +1136,16 @@ class Simulation:
 
 		self.inpDict['WORLDS'].append('R' + str(self.nofWorlds))
 
+		self.nofWorlds += 1
+		#print (self.nofWorlds)
+
 	def addWorld(self, regionType='stretch', region=[[1, 2]], rootMobility='Weld', 
 		timestep=0.001, mdsteps=10, argJointType="Pin", subsets=['rama'], 
-		contacts=False, contactCutoff=0,	samples=1, FlexIn="ThisFlexDoesNotExist.flex"):
+		contacts=False, contactCutoff=0,	samples=1, FlexIn="ThisFlexDoesNotExist.flex",
+		WritePDBs=1, Print_Freq=1, mdsteps_std=0):
 
+		#print ("nofWorlds: {}".format(self.nofWorlds))
 		print("Starting Simulation addWorld")
-		self.nofWorlds += 1
 
 		region = np.array(region)
 		if region.ndim != 2:
@@ -1119,9 +1156,29 @@ class Simulation:
 		for reg in region:
 			nofAAs += (reg[1] - reg[0])
 
+		if regionType == "all":
+			outFN = os.path.join(self.path, "bot.allFlex." + str(self.nofWorlds) + ".flex")	
+			self.FFWorld = self.nofWorlds
+			allflexF = open(outFN, "w")
+			for i in range(self.context.topology.n_bonds):
+				allflexF.write("%5d %5d Cartesian # %4s %s %6d %3s   %4s %s %6d %3s %8.5f %8.5f\n" % (self.context.bonds[i][0], self.context.bonds[i][1] \
+					,self.context.table.values[ int(self.context.bonds[i][0]) ][1], self.context.table.values[ int(self.context.bonds[i][0]) ][2] \
+					,self.context.table.values[ int(self.context.bonds[i][0]) ][3], self.context.table.values[ int(self.context.bonds[i][0]) ][4] \
+					,self.context.table.values[ int(self.context.bonds[i][1]) ][1], self.context.table.values[ int(self.context.bonds[i][1]) ][2] \
+					,self.context.table.values[ int(self.context.bonds[i][1]) ][3], self.context.table.values[ int(self.context.bonds[i][1]) ][4] \
+					,self.context.sasa[0][ self.context.table.values[ int(self.context.bonds[i][0]) ][3] ] \
+					,self.context.sasa[0][ self.context.table.values[ int(self.context.bonds[i][1]) ][3] ]
+				))
+			allflexF.close()
+
+			
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
+			dirName, fileName = os.path.split(outFN)
+			self.inpDict['FLEXFILE'].append(fileName)
+
 		if regionType == 'premade':
 			self.inpDict['FLEXFILE'].append(FlexIn)
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		elif regionType == 'roll':
 			# Recursive call stretch like
@@ -1146,7 +1203,7 @@ class Simulation:
 					if wroteToFile == True:
 						dirName, fileName = os.path.split(outFN)
 						self.inpDict['FLEXFILE'].append(fileName)
-						self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+						self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 						print("Wrote to", fileName)
 		
 						self.nofWorlds += 1
@@ -1170,7 +1227,7 @@ class Simulation:
 					if wroteToFile == True:
 						dirName, fileName = os.path.split(outFN)
 						self.inpDict['FLEXFILE'].append(fileName)
-						self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+						self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 						print("Wrote to", fileName)
 		
 						self.nofWorlds += 1
@@ -1224,7 +1281,7 @@ class Simulation:
 			# Add flex filename to Robosample input
 			dirName, fileName = os.path.split(outFN)
 			self.inpDict['FLEXFILE'].append(fileName)
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 			print("Wrote to", fileName)
 			
 		# Get acc, loops and sugars
@@ -1243,7 +1300,7 @@ class Simulation:
 						worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.loops.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		# Get acc, loops and sugars
 		elif regionType == 'accesible':
@@ -1265,7 +1322,7 @@ class Simulation:
 					worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.acc.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		# Get acc, loops and sugars
 		elif regionType == 'sugars':
@@ -1295,7 +1352,7 @@ class Simulation:
 					worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.sugars.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		# Get acc, loops and sugars
 		elif regionType == 'sugnln':
@@ -1311,7 +1368,7 @@ class Simulation:
 					worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.sugnln.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		elif regionType == 'suginter':
 			outFN = os.path.join(self.path, "bot.suginter.flex")
@@ -1326,7 +1383,7 @@ class Simulation:
 					worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.suginter.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		elif regionType == 'sugout':
 			outFN = os.path.join(self.path, "bot.sugout.flex")
@@ -1341,7 +1398,7 @@ class Simulation:
 					worldNo=0, FN = outFN)
 
 			self.inpDict['FLEXFILE'].append('bot.sugout.flex')
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 
 		# Ball world		
 		elif regionType == 'ball':
@@ -1363,7 +1420,7 @@ class Simulation:
 
 			self.inpDict['FLEXFILE'].append('bot.ball.flex')
 		
-			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples)
+			self.inpEverythingButFlex(rootMobility, timestep, mdsteps, contacts, contactCutoff, samples, FixP="FALSE", FixT="FALSE", WritePDBs=WritePDBs, Print_Freq=Print_Freq, mdsteps_std=mdsteps_std)
 		print("Done Simulation addWorld")
 	#
 
@@ -1377,33 +1434,64 @@ class Simulation:
 		self.inpDict['OUTPUT_DIR'] = [self.reporters[0].outputDir]
 
 		# Put input together
-		inpTxt = '''# Robosample input \n'''
+		inpTxt = '''# Robosample input \n#I/O Parameters\n'''
 
 		moldirs = self.system.moldirs
 		for moldir in self.system.moldirs:
 			#inpTxt += (' ' + moldir)
 			pass
 
+		## We noticed that if FF world is #1, the acceptance is higher
+		## so just swtich the first two worlds around, assuming that's the 
+		## the first one. Since we do a bunch of stuff with the dictionary
+		## it's best to do this here.
+	
+
 		for key in list(self.inpDict.keys()):
+			#print (len(self.inpDict[key]))
+			if (len(self.inpDict[key]) > 1 and key != "WRITEPDBS" and self.switchd == 0):
+				tempVal = self.inpDict[key][1]
+				self.inpDict[key][1] = self.inpDict[key][self.FFWorld]
+				self.inpDict[key][self.FFWorld] = tempVal
+
+
 			inpTxt += key
 			for val in self.inpDict[key]:
 				inpTxt +=  " " + str(val)
 			inpTxt += '\n'
-		
+	
+			if(key == "RUN_TYPE"):
+				inpTxt += "\n# Simulation Parameters #\n"
+			if(key == "SEED"):
+				inpTxt += "\n# Advanced Sim Parameters #\n"
+			if(key == "NMA_OPTION"):
+				inpTxt += "\n# Thermodynamic Parameters #\n"
+			if(key == "GBSA"):
+				inpTxt += "\n# Generalized Fixman Paramaters #\n"
+			if(key == "FIXMAN_TORQUE"):
+				inpTxt += "\n# Geometrical Measurements #\n"
+			if((key == "DIHEDRAL") or (("DIHEDRAL" not in list(self.inpDict.keys())) and key == "GEOMETRY")):
+				inpTxt += "\n# Output Parameters #\n"
+			if(key == "WRITEPDBS"):
+				inpTxt += "\n# Software Parameters #\n"
 
 		# Write input file
 		self.inpTxt = inpTxt
-		inpFN = 'inp.test'
-		inpF = open(inpFN, "w+")
+		inpF = open(self.inpFN, "w+")
 		inpF.write(self.inpTxt)
 		inpF.close()
+		print("Input file {} has been written.".format(self.inpFN))
 
+		self.switchd = 1 
 		
 		os.system("echo \'" + inpTxt + "\'")
 		#os.system("$ROBOSAMPLEDIR/build-release/src/GMOLMODEL_robo inp.test")	##This doesn't wait
-		RSCommand = [os.environ["ROBOSAMPLEDIR"] + "/build-release/src/GMOLMODEL_robo", "inp.test"]
-		RS_sub = subprocess.Popen(RSCommand,stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-		RS_sub.communicate()
+		RSCommand = [os.environ["ROBOSAMPLEEXEC"], self.inpFN]
+		#print(self.logOutFile)
+		#RS_sub = subprocess.Popen(RSCommand, stdout=self.logOutFile, stderr=self.logOutFile)
+		#RS_sub.communicate()
+
+		sys.exit()
 
 		print("Done Simulation step")
 	#		
@@ -1438,6 +1526,7 @@ class Simulation:
 		self.inpDict["SEED"] = []
 		self.inpDict["WORLDS"] = [] 
 		self.inpDict["FLEXFILE"] = self.inpDict["FLEXFILE"][:-1]
+		self.inpDict["NMA_OPTION"] = self.inpDict["NMA_OPTION"][:-1]
 		SEEDRandNumber = np.random.randint(0,10000)*1000 + np.random.randint(0,10)
 
 		for NMAWorld in range(Modes):
@@ -1447,6 +1536,7 @@ class Simulation:
 			shutil.move(NMAFlexFN, self.system.moldirs[0] + "/" )
 	## We add the generated FLEX file to the input file	
 			self.inpDict["FLEXFILE"].append(NMAFlexFN)
+			self.inpDict["NMA_OPTION"].append(2)
 		
 	## We also need to add values for all the newly created worlds
 		keysToMultiply = ["PRMTOP", "INPCRD", "RBFILE", "ROOT_MOBILITY", "RUN_TYPE", "ROUNDS_TILL_REBLOCK", "ROOTS", "SAMPLER", "TIMESTEPS", "MDSTEPS", "BOOST_MDSTEPS", "SAMPLES_PER_ROUND", "REPRODUCIBLE", "THERMOSTAT", "TEMPERATURE_INI", "TEMPERATURE_FIN", "BOOST_TEMPERATURE", "FFSCALE", "GBSA", "FIXMAN_POTENTIAL", "FIXMAN_TORQUE", "VISUAL", "PRINT_FREQ", "WRITEPDBS", "GEOMETRY", "THREADS", "OPENMM"]
@@ -1459,10 +1549,10 @@ class Simulation:
 			self.inpDict["SEED"].append(SEEDRandNumber + self.NMAGen*100)
 			
 		
-	
+		self.inpFN = "NMAInp.{}.inp".format(self.NMAGen)
 		self.step(recalcSteps)
 		self.totalSteps = self.totalSteps - self.recalcSteps	
-		print(self.totalSteps)
+		print("Steps Remaining: {}".format(self.totalSteps))
 
 	## In order to minimize the system later on, we need to generate an
 	## OpenMM simulation object.
@@ -1473,7 +1563,12 @@ class Simulation:
 	
 		while (self.totalSteps > 0):
 		## Get final PDB path
-			finalPDBFN = glob.glob("{}/pdbs/*{}.*{}.pdb".format(self.inpDict['OUTPUT_DIR'][0],self.inpDict['SEED'][0],recalcSteps-1))[0]
+			#print(self.inpDict['OUTPUT_DIR'][0])
+			#print(self.path.split("/")[-1])
+			#print(self.inpDict['SEED'][0])
+
+			print(glob.glob("{}/pdbs/final.{}{}*.pdb".format(self.inpDict['OUTPUT_DIR'][0], self.path.split("/")[-1], self.inpDict['SEED'][0])))
+			finalPDBFN = glob.glob("{}/pdbs/final.{}{}*.pdb".format(self.inpDict['OUTPUT_DIR'][0], self.path.split("/")[-1], self.inpDict['SEED'][0]))[0]
 			print (finalPDBFN)
 			finalPDB = md.load(finalPDBFN)
 		## Copy coordinates from it to the OMM simulation object
@@ -1494,7 +1589,7 @@ class Simulation:
 		## Generate RST7 file, to use in the next iteration
 			newRST7FN = "{}/PostNMARound{}.rst7".format(self.inpDict['MOLECULES'][0], self.NMAGen)
 			newRST7 = md.load(minPDB)
-			PDB2CRD(minPDB, newRST7FN) 
+			PDB2CRD(finalPDBFN, newRST7FN) 
 			print("New RST7 file written: {}\n".format(newRST7FN))
 		## Recompute NMA, based on new, minimized PDB file
 			self.NMAGen += 1			
@@ -1502,7 +1597,10 @@ class Simulation:
 			self.NMAFlex.GetFlexScaled("{}.FlexNumber{}".format(self.NMAFlex.tempRoot, self.NMAGen), GenerateVMD=False)
 
 		## Regenerate input file, changing INPCRD, SEED and FLEX	
-			self.inpDict["FLEXFILE"] = self.inpDict["FLEXFILE"][:-Modes]
+			for Ix in range(len(self.inpDict["FLEXFILE"])):
+				if (Ix != 1):
+					self.inpDict["FLEXFILE"][Ix] = "0"
+			print (self.inpDict["FLEXFILE"])
 			self.inpDict["INPCRD"] = []
 			self.inpDict["SEED"] = [] 
 			for allWorlds in range(len(self.inpDict["PRMTOP"])):
@@ -1515,8 +1613,13 @@ class Simulation:
 				shutil.move(NMAFlexFN, self.system.moldirs[0] + "/" )
 		## We add the generated FLEX file to the input file, and 
 		## change the SEED and INPCRD values accordingly
-				self.inpDict["FLEXFILE"].append(NMAFlexFN)
+				if (self.inpDict["FLEXFILE"][NMAWorld] == "0"):
+					self.inpDict["FLEXFILE"][NMAWorld] = NMAFlexFN
+				else:
+					self.inpDict["FLEXFILE"][NMAWorld+1] = NMAFlexFN
+						
 			print("\n")
+			self.inpFN = "NMAInp.{}.inp".format(self.NMAGen)
 			self.step(recalcSteps)	
 			self.totalSteps = self.totalSteps - self.recalcSteps	
 			print("Total steps left: {}".format(self.totalSteps))
